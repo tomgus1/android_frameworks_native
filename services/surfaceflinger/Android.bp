@@ -76,7 +76,6 @@ cc_defaults {
         "android.hardware.graphics.composer@2.1-command-buffer",
         "android.hardware.graphics.composer@2.2-command-buffer",
         "android.hardware.graphics.composer@2.3-command-buffer",
-        "display_intf_headers"
     ],
     export_static_lib_headers: [
         "libcompositionengine",
@@ -181,6 +180,19 @@ cc_library_shared {
         "SurfaceFlingerFactory.cpp",
     ],
     logtags: ["EventLog/EventLogTags.logtags"],
+    include_dirs: [
+        "frameworks/native/vulkan/vkjson",
+        "frameworks/native/vulkan/include",
+        "hardware/qcom/display/include",
+        "hardware/qcom/display/gralloc",
+        "hardware/qcom/display/libqdutils",
+    ],
+    cppflags: [
+        "-fwhole-program-vtables", // requires ThinLTO
+    ],
+    lto: {
+        thin: true,
+    },
 }
 
 cc_defaults {
@@ -191,6 +203,10 @@ cc_defaults {
     ],
     whole_static_libs: [
         "libsigchain",
+    ],
+    include_dirs: [
+        "hardware/qcom/display/include",
+        "hardware/qcom/display/gralloc",
     ],
     shared_libs: [
         "android.frameworks.displayservice@1.0",
