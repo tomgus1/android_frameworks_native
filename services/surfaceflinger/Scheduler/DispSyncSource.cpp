@@ -19,7 +19,6 @@
 #include "DispSyncSource.h"
 
 #include <android-base/stringprintf.h>
-#include <dlfcn.h>
 #include <utils/Trace.h>
 #include <mutex>
 
@@ -35,19 +34,7 @@ DispSyncSource::DispSyncSource(DispSync* dispSync, nsecs_t phaseOffset, bool tra
         mVsyncOnLabel(base::StringPrintf("VsyncOn-%s", name)),
         mVsyncEventLabel(base::StringPrintf("VSYNC-%s", name)),
         mDispSync(dispSync),
-        mPhaseOffset(phaseOffset) {
-        mDolphinHandle = dlopen("libdolphin.so", RTLD_NOW);
-        if (!mDolphinHandle) {
-            ALOGW("Unable to open libdolphin.so: %s.", dlerror());
-        } else {
-            mDolphinCheck = (bool (*) (const char*))dlsym(mDolphinHandle, "dolphinCheck");
-            if (!mDolphinCheck) dlclose(mDolphinHandle);
-        }
-}
-
-DispSyncSource::~DispSyncSource() {
-    if(mDolphinCheck)dlclose(mDolphinHandle);
-}
+        mPhaseOffset(phaseOffset) {}
 
 void DispSyncSource::setVSyncEnabled(bool enable) {
     std::lock_guard lock(mVsyncMutex);
@@ -66,16 +53,6 @@ void DispSyncSource::setVSyncEnabled(bool enable) {
             ALOGE("error unregistering vsync callback: %s (%d)", strerror(-err), err);
         }
         // ATRACE_INT(mVsyncOnLabel.c_str(), 0);
-        if (mDolphinCheck) {
-            if (mDolphinCheck(mName)) {
-                status_t err = mDispSync->addEventListener(mName, mPhaseOffset,
-                                                           static_cast<DispSync::Callback*>(this),
-                                                           mLastCallbackTime);
-                if (err != NO_ERROR) {
-                    ALOGE("error registering vsync callback: %s (%d)", strerror(-err), err);
-                }
-            }
-        }
     }
     mEnabled = enable;
 }
