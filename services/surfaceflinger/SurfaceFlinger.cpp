@@ -128,7 +128,6 @@
 #include <layerproto/LayerProtoParser.h>
 #include "SurfaceFlingerProperties.h"
 #include "gralloc_priv.h"
-#include "frame_extn_intf.h"
 #include "smomo_interface.h"
 
 namespace android {
@@ -445,36 +444,16 @@ SurfaceFlinger::SurfaceFlinger(Factory& factory) : SurfaceFlinger(factory, SkipI
         ALOGW("Unable to open libdolphin.so: %s.", dlerror());
     } else {
         mDolphinInit = (bool (*) ())dlsym(mDolphinHandle, "dolphinInit");
-        mDolphinMonitor = (bool (*) (int, nsecs_t))dlsym(mDolphinHandle, "dolphinMonitor");
-        mDolphinScaling = (void (*)(int, int))dlsym(mDolphinHandle, "dolphinScaling");
+        mDolphinOnFrameAvailable =
+            (void (*) (bool, int, int32_t, int32_t, String8))dlsym(mDolphinHandle,
+                                                                   "dolphinOnFrameAvailable");
+        mDolphinMonitor = (bool (*) (int))dlsym(mDolphinHandle, "dolphinMonitor");
         mDolphinRefresh = (void (*) ())dlsym(mDolphinHandle, "dolphinRefresh");
-        if (mDolphinInit && mDolphinMonitor && mDolphinScaling && mDolphinRefresh) {
+        if (mDolphinInit != nullptr && mDolphinOnFrameAvailable != nullptr &&
+            mDolphinMonitor != nullptr && mDolphinRefresh != nullptr) {
             if (mDolphinInit()) mDolphinFuncsEnabled = true;
         }
         if (!mDolphinFuncsEnabled) dlclose(mDolphinHandle);
-    }
-
-
-    mFrameExtnLibHandle = dlopen(EXTENSION_LIBRARY_NAME, RTLD_NOW);
-    if (!mFrameExtnLibHandle) {
-        ALOGE("Unable to open libframeextension.so: %s.", dlerror());
-    } else {
-        mCreateFrameExtnFunc =
-            (bool (*) (composer::FrameExtnIntf**))(dlsym(mFrameExtnLibHandle,
-                                                                CREATE_FRAME_EXTN_INTERFACE));
-        mDestroyFrameExtnFunc =
-            (bool (*) (composer::FrameExtnIntf*))(dlsym(mFrameExtnLibHandle,
-                                                                 DESTROY_FRAME_EXTN_INTERFACE));
-        if (mCreateFrameExtnFunc && mDestroyFrameExtnFunc) {
-            mCreateFrameExtnFunc(&mFrameExtn);
-            if (!mFrameExtn) {
-                ALOGE("Frame Extension Object create failed.");
-                dlclose(mFrameExtnLibHandle);
-            }
-        } else {
-            ALOGE("Can't load libframeextension symbols: %s", dlerror());
-            dlclose(mFrameExtnLibHandle);
-        }
     }
 }
 
@@ -486,7 +465,6 @@ void SurfaceFlinger::onFirstRef()
 SurfaceFlinger::~SurfaceFlinger()
 {
     if (mDolphinFuncsEnabled) dlclose(mDolphinHandle);
-    if (mFrameExtn) dlclose(mFrameExtnLibHandle);
 
     if(mUseSmoMo) {
         mSmoMoDestroyFunc(mSmoMo);
@@ -1938,23 +1916,13 @@ void SurfaceFlinger::onMessageReceived(int32_t what) NO_THREAD_SAFETY_ANALYSIS {
                             if (maxQueuedFrames < layerQueuedFrames &&
                                     !layer->visibleNonTransparentRegion.isEmpty()) {
                                 maxQueuedFrames = layerQueuedFrames;
-                                mNameLayerMax = layer->getName();
                             }
                         }
                     }
                 });
-                mMaxQueuedFrames = maxQueuedFrames;
-                DisplayStatInfo stats;
-                mScheduler->getDisplayStatInfo(&stats);
-                if(mDolphinMonitor(maxQueuedFrames, stats.vsyncPeriod)) {
+                if(mDolphinMonitor(maxQueuedFrames)) {
                     signalLayerUpdate();
-                    if (mFrameExtn) {
-                        mNumIdle++;
-                    }
                     break;
-                }
-                if (mFrameExtn) {
-                    mNumIdle++;
                 }
             }
 
@@ -1976,24 +1944,13 @@ void SurfaceFlinger::onMessageReceived(int32_t what) NO_THREAD_SAFETY_ANALYSIS {
                 // repaint
                 signalRefresh();
             }
-            if (mFrameExtn && mDolphinFuncsEnabled) {
-                if (!refreshNeeded) {
-                    mDolphinScaling(mNumIdle, mMaxQueuedFrames);
-                }
-            }
             break;
         }
         case MessageQueue::REFRESH: {
-            if (mFrameExtn) {
-                mRefreshTimeStamp = systemTime(SYSTEM_TIME_MONOTONIC);
-            }
             if (mDolphinFuncsEnabled) {
                 mDolphinRefresh();
             }
             handleMessageRefresh();
-            if (mFrameExtn) {
-                mNumIdle = 0;
-            }
             break;
         }
     }
